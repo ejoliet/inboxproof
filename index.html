@@ -1,0 +1,850 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>inboxproof — email authentication report card</title>
+<meta name="description" content="Instant SPF / DKIM / DMARC report card for any domain. Free, no signup, runs entirely in your browser.">
+<style>
+/* ---------- tokens ---------- */
+:root{
+  --paper:#fdfdfb; --ink:#1c2330; --muted:#5c6675;
+  --air-red:#c94040; --air-blue:#2b4c9b;
+  --pass:#1e7d4f; --warn:#b07408; --fail:#c23434; --info:#2b4c9b;
+  --line:#d9dce2; --chip:#eef0f4;
+  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{background:var(--paper);color:var(--ink);font-family:var(--sans);line-height:1.45;
+  padding:1rem;max-width:820px;margin:0 auto}
+h1,h2,h3{line-height:1.15;margin:0}
+a{color:var(--air-blue)}
+button{font:inherit;cursor:pointer}
+:focus-visible{outline:3px solid var(--air-blue);outline-offset:2px}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+
+/* ---------- header / hero ---------- */
+header{margin:1.2rem 0 1.6rem}
+.brand{font-weight:800;font-size:1.35rem;letter-spacing:-.02em}
+.brand .box{color:var(--air-red)}
+.tagline{color:var(--muted);margin:.25rem 0 0;font-size:.95rem}
+.searchrow{display:flex;gap:.5rem;margin-top:1.1rem}
+#domainInput{flex:1;font:1.05rem var(--mono);padding:.7rem .8rem;border:2px solid var(--ink);
+  border-radius:6px;background:#fff;min-width:0}
+#checkBtn{background:var(--ink);color:#fff;border:2px solid var(--ink);border-radius:6px;
+  padding:.7rem 1.1rem;font-weight:700}
+#checkBtn:disabled{opacity:.5;cursor:wait}
+.examples{margin-top:.6rem;display:flex;gap:.4rem;flex-wrap:wrap}
+.examples button{background:var(--chip);border:1px solid var(--line);border-radius:999px;
+  padding:.25rem .7rem;font:0.8rem var(--mono);color:var(--muted)}
+.privacy-note{font-size:.78rem;color:var(--muted);margin-top:.8rem}
+
+/* ---------- airmail report card (signature element) ---------- */
+.card{position:relative;background:#fff;border:3px solid transparent;border-radius:8px;
+  padding:1.1rem;margin-top:1.4rem;
+  /* AIDEV: par-avion striped border — repeating-linear-gradient on border-image */
+  border-image:repeating-linear-gradient(45deg,
+    var(--air-red) 0 12px, #fff 12px 20px, var(--air-blue) 20px 32px, #fff 32px 40px) 6;
+  box-shadow:0 1px 4px rgba(28,35,48,.08)}
+.card-head{display:flex;justify-content:space-between;align-items:flex-start;gap:.8rem;flex-wrap:wrap}
+.card-domain{font:700 1.15rem var(--mono);word-break:break-all}
+.card-sub{color:var(--muted);font-size:.8rem;margin-top:.2rem}
+.stamp{flex-shrink:0;width:92px;height:92px;border:3px double var(--air-red);border-radius:50%;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  transform:rotate(-8deg);color:var(--air-red);text-align:center;user-select:none}
+.stamp .g{font:800 2.1rem/1 var(--sans)}
+.stamp .s{font:.55rem var(--mono);letter-spacing:.08em;text-transform:uppercase}
+.stamp.grade-A,.stamp.grade-Ap{border-color:var(--pass);color:var(--pass)}
+.stamp.grade-B{border-color:#4a7d1e;color:#4a7d1e}
+.stamp.grade-C{border-color:var(--warn);color:var(--warn)}
+.stamp.grade-D,.stamp.grade-F{border-color:var(--fail);color:var(--fail)}
+
+/* ---------- check rows ---------- */
+.checks{margin-top:1rem;display:flex;flex-direction:column;gap:.55rem}
+.check{border:1px solid var(--line);border-radius:6px;padding:.6rem .7rem}
+.check summary{display:flex;align-items:center;gap:.55rem;cursor:pointer;list-style:none}
+.check summary::-webkit-details-marker{display:none}
+.badge{flex-shrink:0;font:700 .68rem var(--mono);letter-spacing:.05em;padding:.15rem .5rem;
+  border-radius:4px;color:#fff;min-width:52px;text-align:center}
+.badge.pass{background:var(--pass)} .badge.warn{background:var(--warn)}
+.badge.fail{background:var(--fail)} .badge.info{background:var(--info)}
+.badge.wait{background:var(--muted)}
+.check .name{font-weight:700}
+.check .short{color:var(--muted);font-size:.85rem;margin-left:auto;text-align:right}
+.check .detail{margin-top:.6rem;font-size:.88rem;border-top:1px dashed var(--line);padding-top:.6rem}
+.record{font:.78rem var(--mono);background:var(--chip);padding:.5rem;border-radius:4px;
+  overflow-x:auto;white-space:pre-wrap;word-break:break-all;margin:.4rem 0}
+.fixrow{display:flex;gap:.5rem;align-items:flex-start;margin-top:.4rem}
+.copybtn{background:#fff;border:1px solid var(--ink);border-radius:4px;padding:.2rem .6rem;
+  font:.75rem var(--mono);flex-shrink:0}
+.copybtn.ok{background:var(--pass);color:#fff;border-color:var(--pass)}
+
+/* ---------- export bar / panels ---------- */
+.exportbar{display:flex;gap:.5rem;flex-wrap:wrap;margin-top:1rem}
+.exportbar button,.exportbar a{background:#fff;border:2px solid var(--ink);border-radius:6px;
+  padding:.5rem .9rem;font-weight:600;font-size:.85rem;color:var(--ink);text-decoration:none}
+.panel{border:1px solid var(--line);border-radius:8px;padding:1rem;margin-top:1.2rem;background:#fff}
+.panel h2{font-size:1rem;margin-bottom:.5rem}
+.hidden{display:none!important}
+.error-panel{border:2px solid var(--fail);background:#fff6f6}
+.error-panel h2{color:var(--fail)}
+textarea{width:100%;font:.85rem var(--mono);border:1px solid var(--line);border-radius:6px;
+  padding:.6rem;min-height:110px}
+table{border-collapse:collapse;width:100%;font-size:.82rem;margin-top:.6rem}
+th,td{border:1px solid var(--line);padding:.35rem .5rem;text-align:left;font-family:var(--mono)}
+th{background:var(--chip)}
+.gr{font-weight:800}
+.gr.A,.gr.Ap{color:var(--pass)} .gr.B{color:#4a7d1e} .gr.C{color:var(--warn)}
+.gr.D,.gr.F{color:var(--fail)}
+input[type=text].small{font:.85rem var(--mono);padding:.4rem .5rem;border:1px solid var(--line);border-radius:4px}
+.pro-tag{font:.62rem var(--mono);background:var(--air-blue);color:#fff;border-radius:3px;
+  padding:.1rem .35rem;vertical-align:middle;letter-spacing:.05em}
+footer{margin:2.2rem 0 1rem;font-size:.75rem;color:var(--muted);text-align:center}
+.spin{display:inline-block;width:.85em;height:.85em;border:2px solid var(--line);
+  border-top-color:var(--ink);border-radius:50%;animation:sp 0.8s linear infinite;vertical-align:-2px}
+@keyframes sp{to{transform:rotate(360deg)}}
+
+/* ---------- print (PDF export) ---------- */
+@media print{
+  body{padding:0;max-width:none}
+  header .searchrow,header .examples,.exportbar,.panel,footer .navlinks,
+  #historyPanel,#bulkPanel,#licensePanel,#errorPanel{display:none!important}
+  .check{break-inside:avoid}
+  .check .detail{display:block!important}
+  .card{box-shadow:none}
+  #printFooter{display:block!important;font:.7rem var(--mono);color:var(--muted);
+    margin-top:1rem;text-align:center}
+}
+#printFooter{display:none}
+@media (max-width:520px){
+  .check summary{flex-wrap:wrap}
+  .check .short{margin-left:64px;width:100%;text-align:left}
+  .stamp{width:78px;height:78px}.stamp .g{font-size:1.7rem}
+}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">inbox<span class="box">proof</span></div>
+  <p class="tagline">Will your email land in spam? Get a graded SPF / DKIM / DMARC report card in seconds. Free, no signup.</p>
+  <div class="searchrow">
+    <input id="domainInput" type="text" inputmode="url" autocapitalize="off" autocomplete="off"
+      spellcheck="false" placeholder="yourdomain.com" aria-label="Domain to check">
+    <button id="checkBtn">Check my domain</button>
+  </div>
+  <div class="examples" id="examples">
+    <button data-d="gmail.com">gmail.com</button>
+    <button data-d="github.com">github.com</button>
+    <button data-d="example.com">example.com</button>
+  </div>
+  <p class="privacy-note">Privacy: this page has no backend and no analytics. The only data that leaves
+  your browser is the DNS names being looked up, sent to Cloudflare (1.1.1.1) or Google (8.8.8.8)
+  public DNS — the same lookups your browser already makes. Results and history stay on this device.</p>
+</header>
+
+<!-- error panel -->
+<div id="errorPanel" class="panel error-panel hidden" role="alert">
+  <h2 id="errorTitle">Something went wrong</h2>
+  <p id="errorMsg"></p>
+  <div class="exportbar">
+    <button id="retryBtn">Retry</button>
+    <button id="mockBtn">See a sample report instead</button>
+  </div>
+</div>
+
+<!-- report card -->
+<div id="report" class="hidden">
+  <div class="card" id="cardEl">
+    <div class="card-head">
+      <div>
+        <div class="card-domain" id="repDomain"></div>
+        <div class="card-sub" id="repSub"></div>
+      </div>
+      <div class="stamp" id="stampEl" aria-label="Grade">
+        <span class="g" id="stampGrade"><span class="spin"></span></span>
+        <span class="s">inboxproof<br>verified</span>
+      </div>
+    </div>
+    <div class="checks" id="checksEl"></div>
+    <div id="printFooter"></div>
+  </div>
+  <div class="exportbar">
+    <button id="pngBtn">Export PNG</button>
+    <button id="pdfBtn">Export PDF</button>
+    <button id="linkBtn">Copy permalink</button>
+    <button id="recheckBtn">Re-check</button>
+  </div>
+  <div class="panel" id="dkimPanel">
+    <h2>Know your DKIM selector?</h2>
+    <p style="font-size:.85rem;color:var(--muted)">The DKIM check above tries common selectors only.
+    Enter your exact selector to verify it directly.</p>
+    <div style="display:flex;gap:.5rem;margin-top:.4rem;flex-wrap:wrap">
+      <input class="small" id="dkimSelInput" type="text" placeholder="e.g. mandrill, fm1, pm">
+      <button class="copybtn" id="dkimSelBtn">Check selector</button>
+      <span id="dkimSelResult" style="font-size:.85rem;align-self:center"></span>
+    </div>
+  </div>
+</div>
+
+<!-- history -->
+<div id="historyPanel" class="panel hidden">
+  <h2>Recent checks (stored on this device)</h2>
+  <div id="historyList" style="display:flex;gap:.4rem;flex-wrap:wrap"></div>
+</div>
+
+<!-- bulk mode -->
+<div id="bulkPanel" class="panel">
+  <h2>Bulk check <span class="pro-tag">PRO</span></h2>
+  <div id="bulkLocked">
+    <p style="font-size:.88rem">Paste up to 100 domains and get a ranked table + CSV export —
+    ideal for agencies auditing client portfolios. Requires a Pro license
+    (one-time purchase, no account). Single-domain checks stay free forever.</p>
+    <div class="exportbar">
+      <button id="buyBtn">Get a Pro license — $39 one-time</button>
+      <button id="enterLicenseBtn">I have a license key</button>
+    </div>
+  </div>
+  <div id="bulkUnlocked" class="hidden">
+    <textarea id="bulkInput" placeholder="one-domain-per-line.com&#10;acme.org&#10;client-three.io"></textarea>
+    <div class="exportbar">
+      <button id="bulkRunBtn">Run bulk check</button>
+      <button id="bulkCsvBtn" class="hidden">Download CSV</button>
+      <span id="bulkStatus" style="align-self:center;font-size:.85rem;color:var(--muted)"></span>
+    </div>
+    <div id="bulkTableWrap"></div>
+  </div>
+</div>
+
+<!-- license -->
+<div id="licensePanel" class="panel hidden">
+  <h2>Enter Pro license key</h2>
+  <p style="font-size:.85rem;color:var(--muted)">Keys are verified offline in your browser
+  (Ed25519 signature). Nothing is sent anywhere.</p>
+  <textarea id="licenseInput" placeholder="inboxproof-v1.xxxx.yyyy" style="min-height:70px"></textarea>
+  <div class="exportbar">
+    <button id="licenseVerifyBtn">Activate</button>
+    <span id="licenseStatus" style="align-self:center;font-size:.85rem"></span>
+  </div>
+</div>
+
+<footer>
+  <span id="proBadge"></span>
+  <span class="navlinks">
+    inboxproof — free email health check ·
+    <a href="https://github.com/ejoliet/inboxproof">source</a> ·
+    zero backend · your data never leaves this device
+  </span>
+</footer>
+
+<script src="verify.js"></script>
+<script>
+'use strict';
+/* ================================================================
+   inboxproof — single-file email-authentication report card
+   ================================================================ */
+
+/* ---------- storage: namespaced localStorage with in-memory fallback
+   AIDEV: localStorage is blocked in some embedded contexts (e.g. artifact
+   previews, some private modes). Every read/write goes through this shim. */
+const store = (() => {
+  const mem = {};
+  let ok = false;
+  try { localStorage.setItem('inboxproof.__t','1'); localStorage.removeItem('inboxproof.__t'); ok = true; } catch(e){}
+  return {
+    get(k){ try { return ok ? localStorage.getItem('inboxproof.'+k) : (mem[k] ?? null); } catch(e){ return mem[k] ?? null; } },
+    set(k,v){ try { if (ok) localStorage.setItem('inboxproof.'+k, v); } catch(e){} mem[k]=v; },
+    del(k){ try { if (ok) localStorage.removeItem('inboxproof.'+k); } catch(e){} delete mem[k]; }
+  };
+})();
+
+/* ---------- DoH resolver: Cloudflare primary, Google fallback -------
+   AIDEV: both endpoints are keyless and send Access-Control-Allow-Origin:*.
+   Cloudflare needs the accept header; Google uses /resolve. Status 3 = NXDOMAIN.
+   Per-run cache avoids duplicate queries (SPF include recursion). */
+const RESOLVERS = [
+  { name:'cloudflare', url:(n,t)=>`https://cloudflare-dns.com/dns-query?name=${encodeURIComponent(n)}&type=${t}`,
+    opts:{ headers:{ accept:'application/dns-json' } } },
+  { name:'google', url:(n,t)=>`https://dns.google/resolve?name=${encodeURIComponent(n)}&type=${t}`, opts:{} },
+];
+const dnsCache = new Map();
+let MOCK = null; // set when ?mock=1
+
+async function dohQuery(name, type){
+  const key = type+':'+name.toLowerCase();
+  if (dnsCache.has(key)) return dnsCache.get(key);
+  if (MOCK) { const r = mockAnswer(name, type); dnsCache.set(key, r); return r; }
+  let lastErr;
+  for (const r of RESOLVERS){
+    try {
+      const ctl = new AbortController();
+      const to = setTimeout(()=>ctl.abort(), 6000);
+      const res = await fetch(r.url(name,type), {...r.opts, signal:ctl.signal});
+      clearTimeout(to);
+      if (!res.ok) throw new Error(r.name+' HTTP '+res.status);
+      const j = await res.json();
+      const out = { status:j.Status, answers:(j.Answer||[]).map(a=>({type:a.type, data:a.data})) };
+      dnsCache.set(key, out);
+      return out;
+    } catch(e){ lastErr = e; }
+  }
+  throw new Error('All DNS resolvers unreachable: '+(lastErr&&lastErr.message||''));
+}
+
+/* TXT records arrive quoted and possibly split: "part1" "part2" → join. */
+function txtStrings(ans){
+  return ans.answers.filter(a=>a.type===16)
+    .map(a=>a.data.replace(/^"|"$/g,'').replace(/"\s+"/g,''));
+}
+
+/* ================================================================
+   PARSERS — pure(ish) functions, exposed on window.IP for tests
+   ================================================================ */
+/* AIDEV-PARSE: SPF. Rules implemented:
+   - exactly one v=spf1 record (RFC 7208 §3.2: multiple = permerror → FAIL)
+   - DNS-lookup count across include/redirect/a/mx/ptr/exists ≤ 10 (§4.6.4)
+   - all-qualifier: -all best, ~all ok, ?all weak, +all = FAIL
+   - macros (%{...}) → we do not evaluate; mark advanced + skip recursion */
+function parseSpfRecord(rec){
+  const terms = rec.trim().split(/\s+/).slice(1); // drop v=spf1
+  const out = { terms, allQual:null, hasMacro:/%\{/.test(rec),
+    includes:[], redirect:null, localLookups:0, syntaxOk:true };
+  for (const t of terms){
+    const m = t.match(/^([+\-~?]?)(all|include|a|mx|ptr|ip4|ip6|exists|redirect|exp)([:=\/]?)(.*)$/i);
+    if (!m){ out.syntaxOk = false; continue; }
+    const [,qual,mech,,arg] = m;
+    const mm = mech.toLowerCase();
+    if (mm==='all') out.allQual = qual||'+';
+    if (['include','a','mx','ptr','exists','redirect'].includes(mm)) out.localLookups++;
+    if (mm==='include' && arg && !/%\{/.test(arg)) out.includes.push(arg.toLowerCase());
+    if (mm==='redirect' && arg && !/%\{/.test(arg)) out.redirect = arg.toLowerCase();
+  }
+  return out;
+}
+async function checkSpf(domain, depth=0, seen=new Set()){
+  // returns { status, short, detail[], fix, records, lookups, allQual, hasMacro }
+  const res = await dohQuery(domain,'TXT');
+  if (res.status===3 && depth===0) throw {code:'NXDOMAIN'};
+  const spfRecs = txtStrings(res).filter(s=>/^v=spf1(\s|$)/i.test(s));
+  if (depth===0 && spfRecs.length===0)
+    return { status:'fail', short:'no SPF record', records:[],
+      detail:['No TXT record starting with v=spf1 was found. Receivers cannot verify which servers may send for this domain.'],
+      fix:`v=spf1 include:_spf.YOUR-PROVIDER.com -all` };
+  if (spfRecs.length>1)
+    return { status:'fail', short:spfRecs.length+' SPF records (permerror)', records:spfRecs,
+      detail:['Multiple v=spf1 records are a permanent error (RFC 7208): receivers treat SPF as broken. Merge them into ONE record.'],
+      fix:'Merge all mechanisms into a single v=spf1 record.' };
+  const p = parseSpfRecord(spfRecs[0]);
+  let lookups = p.localLookups;
+  // AIDEV-PARSE: recursive include/redirect lookup counting, depth-capped,
+  // cycle-guarded via `seen`. Each child's own TXT fetch counts via mechanisms,
+  // not the fetch itself.
+  if (!p.hasMacro && depth < 6){
+    for (const inc of [...p.includes, ...(p.redirect?[p.redirect]:[])]){
+      if (seen.has(inc)) continue;
+      seen.add(inc);
+      try {
+        const sub = await dohQuery(inc,'TXT');
+        const subRec = txtStrings(sub).find(s=>/^v=spf1(\s|$)/i.test(s));
+        if (subRec){
+          const sp = parseSpfRecord(subRec);
+          lookups += sp.localLookups;
+          if (!sp.hasMacro){
+            for (const si of [...sp.includes, ...(sp.redirect?[sp.redirect]:[])]){
+              if (!seen.has(si)){ seen.add(si);
+                const r2 = await checkSpfCount(si, depth+2, seen); lookups += r2; }
+            }
+          }
+        }
+      } catch(e){ /* unreachable include: still counts as the 1 lookup above */ }
+    }
+  }
+  const detail = [];
+  let status='pass', short='';
+  if (!p.syntaxOk){ status='warn'; detail.push('Some SPF terms did not parse — verify the record syntax manually.'); }
+  if (p.hasMacro){ status = status==='fail'?status:'warn';
+    detail.push('Record uses SPF macros (%{...}) — advanced record; lookup counting was skipped. Verify manually.'); }
+  if (p.allQual==='+'){ status='fail'; short='+all lets ANYONE send as you';
+    detail.push('"+all" tells receivers to accept mail from any server claiming to be this domain. This defeats SPF entirely.'); }
+  else if (p.allQual===null){ status='warn'; short='no "all" mechanism';
+    detail.push('The record has no terminal all mechanism. Append -all (strict) or ~all (softfail).'); }
+  else if (p.allQual==='?'){ status='warn'; short='?all is neutral (weak)';
+    detail.push('"?all" expresses no opinion about non-listed servers. Prefer ~all or -all.'); }
+  else short = p.allQual+'all, '+lookups+' DNS lookups';
+  if (lookups>10){ status='fail'; short=lookups+' DNS lookups (max 10)';
+    detail.push(`This record triggers ~${lookups} DNS lookups; RFC 7208 caps SPF at 10, after which receivers return permerror. Flatten includes or drop unused providers.`); }
+  else if (lookups>=8 && status==='pass'){ status='warn'; short=lookups+'/10 DNS lookups — near limit';
+    detail.push('You are close to the 10-lookup ceiling; adding one more provider may silently break SPF.'); }
+  if (status==='pass' && p.allQual==='~') detail.push('Consider tightening ~all to -all once you are confident all senders are listed.');
+  if (detail.length===0) detail.push('SPF record is present, single, and within the DNS-lookup budget.');
+  return { status, short: short||'ok', records:spfRecs, detail, lookups, allQual:p.allQual,
+    fix: status!=='pass' ? 'v=spf1 include:_spf.YOUR-PROVIDER.com -all' : null };
+}
+async function checkSpfCount(domain, depth, seen){ // lookup-count helper for nested includes
+  if (depth>6) return 0;
+  try {
+    const sub = await dohQuery(domain,'TXT');
+    const rec = txtStrings(sub).find(s=>/^v=spf1(\s|$)/i.test(s));
+    if (!rec) return 0;
+    const p = parseSpfRecord(rec);
+    if (p.hasMacro) return p.localLookups;
+    let n = p.localLookups;
+    for (const si of [...p.includes, ...(p.redirect?[p.redirect]:[])]){
+      if (!seen.has(si)){ seen.add(si); n += await checkSpfCount(si, depth+1, seen); }
+    }
+    return n;
+  } catch(e){ return 0; }
+}
+
+/* AIDEV-PARSE: DMARC. _dmarc.<domain> TXT; DoH follows CNAME chains inside the
+   Answer array (type 5 entries precede the final TXT), so txtStrings() already
+   handles CNAME-published records. Subdomains fall back to the org domain
+   (heuristic 2LD list, not a full public-suffix list — documented limitation). */
+const COMMON_2LD = new Set(['co.uk','org.uk','ac.uk','gov.uk','com.au','net.au','org.au','co.jp','ne.jp','or.jp','co.nz','co.za','com.br','com.mx','com.ar','co.in','com.sg','com.hk','com.tr']);
+function orgDomain(d){
+  const parts = d.split('.');
+  if (parts.length<=2) return d;
+  const last2 = parts.slice(-2).join('.');
+  return COMMON_2LD.has(last2) ? parts.slice(-3).join('.') : last2;
+}
+function parseDmarc(rec){
+  const tags = {};
+  rec.split(';').forEach(kv=>{
+    const m = kv.trim().match(/^(\w+)\s*=\s*(.+)$/);
+    if (m) tags[m[1].toLowerCase()] = m[2].trim();
+  });
+  return tags;
+}
+async function checkDmarc(domain){
+  let host = '_dmarc.'+domain, inherited = false;
+  let res = await dohQuery(host,'TXT');
+  let recs = txtStrings(res).filter(s=>/^v=DMARC1/i.test(s));
+  const org = orgDomain(domain);
+  if (recs.length===0 && org!==domain){
+    res = await dohQuery('_dmarc.'+org,'TXT');
+    recs = txtStrings(res).filter(s=>/^v=DMARC1/i.test(s));
+    inherited = recs.length>0;
+  }
+  if (recs.length===0)
+    return { status:'fail', short:'no DMARC policy', records:[], policy:null,
+      detail:['No DMARC record found. Google, Yahoo and Microsoft now require DMARC for bulk senders; without it, spoofers can impersonate this domain freely.'],
+      fix:`_dmarc.${domain} TXT "v=DMARC1; p=none; rua=mailto:dmarc-reports@${org}"` };
+  const t = parseDmarc(recs[0]);
+  const p = (t.p||'').toLowerCase();
+  const detail = [], record = recs[0];
+  let status, short;
+  if (p==='reject'){ status='pass'; short='p=reject — full protection'; }
+  else if (p==='quarantine'){ status='pass'; short='p=quarantine';
+    detail.push('Quarantine sends failing mail to spam. Move to p=reject when your reports look clean.'); }
+  else if (p==='none'){ status='warn'; short='p=none — monitoring only';
+    detail.push('p=none only collects reports; spoofed mail is still delivered. Ratchet to quarantine, then reject.'); }
+  else { status='warn'; short='unrecognized policy "'+(t.p||'?')+'"';
+    detail.push('The p= tag is missing or invalid; receivers treat the record as broken.'); }
+  if (!t.rua) detail.push('No rua= reporting address — you are flying blind. Add rua=mailto:… to receive aggregate reports.');
+  if (t.pct && +t.pct<100) detail.push(`pct=${t.pct}: policy applies to only ${t.pct}% of mail.`);
+  if (inherited) detail.push(`Inherited from the organizational domain (${org}).`);
+  if (detail.length===0) detail.push('DMARC is enforcing and reporting. This is the record that stops spoofing.');
+  return { status, short, records:[record], detail, policy:p, inherited,
+    fix: status!=='pass' ? `v=DMARC1; p=quarantine; rua=mailto:dmarc-reports@${org}` : null };
+}
+
+/* AIDEV-PARSE: MX. No MX + A record ⇒ implicit-MX fallback (warn).
+   Null MX ("." per RFC 7505) ⇒ explicitly non-receiving domain (info). */
+async function checkMx(domain){
+  const res = await dohQuery(domain,'MX');
+  const mx = res.answers.filter(a=>a.type===15).map(a=>a.data);
+  if (mx.length && mx.every(m=>/\s\.$|\s\.$/.test(m) || m.trim().endsWith(' .') || /^0 \.$/.test(m.trim())))
+    return { status:'info', short:'null MX — non-receiving domain', records:mx,
+      detail:['This domain declares it does not receive mail (RFC 7505 null MX). SPF -all + DMARC reject are still recommended to stop spoofing.'] };
+  if (mx.length)
+    return { status:'pass', short:mx.length+' mail server'+(mx.length>1?'s':''), records:mx,
+      detail:['MX records present.'] };
+  const a = await dohQuery(domain,'A');
+  if (a.answers.some(x=>x.type===1))
+    return { status:'warn', short:'no MX — implicit A fallback', records:[],
+      detail:['No MX record; some senders will fall back to the A record, many will not. Publish an explicit MX (or a null MX if the domain never receives mail).'],
+      fix:`${domain} MX 10 mail.${domain}` };
+  return { status:'fail', short:'no MX, no A', records:[],
+    detail:['This domain cannot receive mail at all.'], fix:`${domain} MX 10 mail.${domain}` };
+}
+
+/* AIDEV-PARSE: DKIM discovery is inherently heuristic — selectors are private
+   naming choices. We probe a common-selector list in parallel and clearly label
+   the result. Absence ≠ failure; custom-selector input lets the user prove it. */
+const DKIM_SELECTORS = ['google','selector1','selector2','s1','s2','k1','default','mail'];
+async function probeDkimSelector(sel, domain){
+  const res = await dohQuery(`${sel}._domainkey.${domain}`,'TXT');
+  const rec = txtStrings(res).find(s=>/v=DKIM1|(^|;)\s*p=/i.test(s));
+  return rec ? { sel, rec, revoked:/(^|;)\s*p=\s*(;|$)/.test(rec) } : null;
+}
+async function checkDkim(domain){
+  const hits = (await Promise.all(DKIM_SELECTORS.map(s=>probeDkimSelector(s,domain).catch(()=>null)))).filter(Boolean);
+  const live = hits.filter(h=>!h.revoked);
+  if (live.length)
+    return { status:'pass', short:'found: '+live.map(h=>h.sel).join(', '), records:live.map(h=>h.sel+': '+h.rec.slice(0,80)+'…'),
+      detail:['DKIM public key(s) found on common selectors. (Heuristic check — other selectors may also exist.)'], selectors:live.map(h=>h.sel) };
+  return { status:'warn', short:'none on common selectors (heuristic)', records:[],
+    detail:['No DKIM key found on '+DKIM_SELECTORS.length+' common selectors. This does NOT prove DKIM is missing — your provider may use a custom selector. Enter it below to verify. If you have no DKIM at all, enable it at your email provider; Google and Yahoo require it for bulk senders.'],
+    heuristic:true };
+}
+
+/* AIDEV-PARSE: BIMI is a bonus check — absence never lowers the grade. */
+async function checkBimi(domain){
+  const res = await dohQuery('default._bimi.'+domain,'TXT');
+  const rec = txtStrings(res).find(s=>/^v=BIMI1/i.test(s));
+  if (rec) return { status:'pass', short:'brand logo published', records:[rec],
+    detail:['BIMI record found — inbox providers can show your logo (requires DMARC at enforcement + usually a VMC).'] };
+  return { status:'info', short:'not set (optional)', records:[],
+    detail:['BIMI is optional: it displays your brand logo in supporting inboxes. Only worth doing after DMARC reaches p=quarantine/reject.'] };
+}
+
+/* ---------- grade engine --------------------------------------------
+   AIDEV: scoring weights (v1): DMARC 40, SPF 25, DKIM 25, MX 10, BIMI 0.
+   Hard rules: no DMARC ⇒ cap D. SPF +all or multiple-SPF ⇒ F. */
+function computeGrade(c){
+  let pts = 0;
+  const dp = c.dmarc.policy;
+  pts += dp==='reject'?40 : dp==='quarantine'?32 : dp==='none'?18 : 0;
+  if (c.spf.status==='fail') pts += 0;
+  else if (c.spf.allQual==='-') pts += 25;
+  else if (c.spf.allQual==='~') pts += 22;
+  else if (c.spf.allQual==='?') pts += 12;
+  else pts += 8;
+  pts += c.dkim.status==='pass'?25 : 10; // heuristic miss = benefit of the doubt
+  pts += c.mx.status==='pass'?10 : (c.mx.status==='warn'||c.mx.status==='info')?6 : 0;
+  let letter = pts>=95?'A+' : pts>=85?'A' : pts>=70?'B' : pts>=55?'C' : pts>=40?'D' : 'F';
+  if (!dp && letter<'D') letter = letter; // (string compare guard, see below)
+  if (!dp && (letter==='A+'||letter==='A'||letter==='B'||letter==='C')) letter='D';
+  const spfBroken = c.spf.status==='fail' && (c.spf.allQual==='+' || (c.spf.records && c.spf.records.length>1));
+  if (spfBroken) letter='F';
+  return { pts, letter };
+}
+window.IP = { parseSpfRecord, parseDmarc, orgDomain, computeGrade, txtStrings }; // test surface
+
+/* ================================================================
+   UI
+   ================================================================ */
+const $ = id => document.getElementById(id);
+const CHECK_META = [
+  ['spf','SPF','Which servers may send as you'],
+  ['dkim','DKIM','Cryptographic message signing'],
+  ['dmarc','DMARC','Anti-spoofing policy'],
+  ['mx','MX','Can this domain receive mail'],
+  ['bimi','BIMI','Brand logo in the inbox (bonus)'],
+];
+let currentReport = null;
+
+function normalizeDomain(raw){
+  let s = (raw||'').trim().toLowerCase();
+  if (!s) return null;
+  if (!/^[a-z]+:\/\//.test(s)) s = 'http://'+s;
+  try {
+    const h = new URL(s).hostname.replace(/\.$/,''); // AIDEV: URL API → punycode/IDN for free
+    return /^[a-z0-9.-]+\.[a-z0-9-]{2,}$/.test(h) ? h : null;
+  } catch(e){ return null; }
+}
+
+function badge(st){ return `<span class="badge ${st}">${st==='wait'?'…':st.toUpperCase()}</span>`; }
+function esc(s){ const d=document.createElement('span'); d.textContent=s; return d.innerHTML; }
+
+function renderRow(key, name, sub, r){
+  const el = $('row-'+key);
+  const short = r ? esc(r.short) : 'checking…';
+  const st = r ? r.status : 'wait';
+  let detail = '';
+  if (r){
+    detail = r.detail.map(d=>`<p style="margin:.3rem 0">${esc(d)}</p>`).join('');
+    if (r.records && r.records.length)
+      detail += `<div class="record">${r.records.map(esc).join('<br>')}</div>`;
+    if (r.fix)
+      detail += `<div class="fixrow"><div class="record" style="flex:1;margin:0">${esc(r.fix)}</div>
+        <button class="copybtn" data-copy="${esc(r.fix)}">copy fix</button></div>`;
+  }
+  el.innerHTML = `<summary>${badge(st)}<span class="name">${name}</span>
+    <span class="short">${short}</span></summary>
+    <div class="detail">${detail || '<span class="spin"></span>'}</div>`;
+  el.open = r ? (st==='fail'||st==='warn') : false;
+}
+
+async function runCheck(domain){
+  $('errorPanel').classList.add('hidden');
+  $('report').classList.remove('hidden');
+  $('repDomain').textContent = domain;
+  $('repSub').textContent = 'checked '+new Date().toLocaleString()+(MOCK?' · SAMPLE DATA':'');
+  $('stampGrade').innerHTML = '<span class="spin"></span>';
+  $('stampEl').className = 'stamp';
+  $('checksEl').innerHTML = CHECK_META.map(([k,n,s])=>
+    `<details class="check" id="row-${k}"></details>`).join('');
+  CHECK_META.forEach(([k,n,s])=>renderRow(k,n,s,null));
+  $('checkBtn').disabled = true;
+  dnsCache.clear();
+
+  const results = {};
+  try {
+    const tasks = {
+      spf: checkSpf(domain), dmarc: checkDmarc(domain),
+      mx: checkMx(domain), dkim: checkDkim(domain), bimi: checkBimi(domain),
+    };
+    // stream rows in as each resolves
+    await Promise.all(Object.entries(tasks).map(async ([k,p])=>{
+      try { results[k] = await p; }
+      catch(e){
+        if (e && e.code==='NXDOMAIN') throw e;
+        results[k] = { status:'warn', short:'check failed — retry', records:[], detail:[String(e.message||e)] };
+      }
+      const meta = CHECK_META.find(m=>m[0]===k);
+      renderRow(k, meta[1], meta[2], results[k]);
+    }));
+  } catch(e){
+    $('checkBtn').disabled = false;
+    if (e && e.code==='NXDOMAIN') return showError('Domain not found',
+      `"${domain}" does not resolve (NXDOMAIN). Check the spelling — inboxproof queries live public DNS.`);
+    return showError('DNS unreachable',
+      'Both Cloudflare and Google DNS-over-HTTPS endpoints failed. This is usually a network filter or a temporary outage.');
+  }
+  const grade = computeGrade(results);
+  currentReport = { domain, checks:results, grade, ts:Date.now() };
+  $('stampGrade').textContent = grade.letter;
+  $('stampEl').className = 'stamp grade-'+grade.letter.replace('+','p');
+  $('printFooter').textContent = licenseInfo().pro ? '' :
+    `Email health check by inboxproof — free, no signup — ${location.origin+location.pathname}`;
+  pushHistory(domain, grade.letter);
+  $('checkBtn').disabled = false;
+  const u = new URL(location); u.searchParams.set('d', domain);
+  history.replaceState(null,'',u);
+}
+
+function showError(title,msg){
+  $('report').classList.add('hidden');
+  $('errorPanel').classList.remove('hidden');
+  $('errorTitle').textContent = title;
+  $('errorMsg').textContent = msg;
+}
+
+/* ---------- history ---------- */
+function pushHistory(domain, letter){
+  let h = [];
+  try { h = JSON.parse(store.get('history')||'[]'); } catch(e){}
+  h = [{d:domain,g:letter,t:Date.now()}, ...h.filter(x=>x.d!==domain)].slice(0,20);
+  store.set('history', JSON.stringify(h));
+  renderHistory();
+}
+function renderHistory(){
+  let h = [];
+  try { h = JSON.parse(store.get('history')||'[]'); } catch(e){}
+  if (!h.length) return $('historyPanel').classList.add('hidden');
+  $('historyPanel').classList.remove('hidden');
+  $('historyList').innerHTML = h.map(x=>
+    `<button class="copybtn" data-hist="${esc(x.d)}">${esc(x.d)} <b class="gr ${x.g.replace('+','p')}">${esc(x.g)}</b></button>`).join('');
+}
+
+/* ---------- exports ---------- */
+/* AIDEV: PNG export draws the card manually on canvas (no html2canvas dep). */
+function exportPng(){
+  if (!currentReport) return;
+  const r = currentReport, W = 1200, rowH = 74, pad = 48;
+  const rows = CHECK_META.map(([k,n])=>({n, r:r.checks[k]}));
+  const H = pad*2 + 150 + rows.length*rowH + 70;
+  const cv = document.createElement('canvas'); cv.width=W; cv.height=H;
+  const g = cv.getContext('2d');
+  g.fillStyle='#fdfdfb'; g.fillRect(0,0,W,H);
+  // airmail border
+  const stripe=18;
+  for (let x=-H; x<W+H; x+=stripe*2){
+    g.save(); g.beginPath();
+    g.moveTo(x,0); g.lineTo(x+stripe,0); g.lineTo(x+stripe-H,H); g.lineTo(x-H,H); g.closePath();
+    g.fillStyle = (Math.round(x/stripe/2)%2===0)?'#c94040':'#2b4c9b'; g.fill(); g.restore();
+  }
+  g.fillStyle='#fff'; g.fillRect(14,14,W-28,H-28);
+  const colors={pass:'#1e7d4f',warn:'#b07408',fail:'#c23434',info:'#2b4c9b'};
+  g.fillStyle='#1c2330'; g.font='700 44px ui-monospace,Menlo,monospace';
+  g.fillText(r.domain, pad, pad+52);
+  g.font='400 22px system-ui'; g.fillStyle='#5c6675';
+  g.fillText('email authentication report card · '+new Date(r.ts).toLocaleDateString(), pad, pad+92);
+  // stamp
+  const sx=W-pad-90, sy=pad+70, gc = colors[{A:'pass','A+':'pass',B:'pass',C:'warn',D:'fail',F:'fail'}[r.grade.letter]]||'#c94040';
+  g.save(); g.translate(sx,sy); g.rotate(-0.14);
+  g.strokeStyle=gc; g.lineWidth=4; g.beginPath(); g.arc(0,0,74,0,7); g.stroke();
+  g.beginPath(); g.arc(0,0,66,0,7); g.stroke();
+  g.fillStyle=gc; g.font='800 64px system-ui'; g.textAlign='center';
+  g.fillText(r.grade.letter, 0, 14);
+  g.font='700 13px ui-monospace,monospace'; g.fillText('INBOXPROOF', 0, 40); g.restore();
+  g.textAlign='left';
+  rows.forEach((row,i)=>{
+    const y = pad+150+i*rowH;
+    g.fillStyle='#eef0f4'; g.fillRect(pad,y,W-pad*2,rowH-12);
+    g.fillStyle = colors[row.r.status]||'#5c6675';
+    g.fillRect(pad,y,10,rowH-12);
+    g.font='700 26px system-ui'; g.fillStyle='#1c2330';
+    g.fillText(row.n, pad+28, y+40);
+    g.font='700 20px ui-monospace,monospace'; g.fillStyle=colors[row.r.status]||'#5c6675';
+    g.fillText(row.r.status.toUpperCase(), pad+150, y+40);
+    g.font='400 20px system-ui'; g.fillStyle='#5c6675';
+    g.fillText(String(row.r.short).slice(0,70), pad+260, y+40);
+  });
+  if (!licenseInfo().pro){
+    g.font='400 18px ui-monospace,monospace'; g.fillStyle='#8a93a3';
+    g.fillText('checked with inboxproof — free email health check — '+location.host+location.pathname, pad, H-pad+6);
+  }
+  const a=document.createElement('a');
+  a.download='inboxproof-'+r.domain+'.png';
+  a.href=cv.toDataURL('image/png'); a.click();
+}
+
+async function copyText(t, btn){
+  try { await navigator.clipboard.writeText(t); }
+  catch(e){ // AIDEV: execCommand fallback for older/embedded contexts
+    const ta=document.createElement('textarea'); ta.value=t; document.body.appendChild(ta);
+    ta.select(); try{document.execCommand('copy');}catch(_){} ta.remove();
+  }
+  if (btn){ const o=btn.textContent; btn.textContent='copied ✓'; btn.classList.add('ok');
+    setTimeout(()=>{btn.textContent=o;btn.classList.remove('ok');},1500); }
+}
+
+/* ---------- license (offline Ed25519, see verify.js) ---------- */
+function licenseInfo(){
+  const cached = store.get('license.valid');
+  return { pro: cached==='1', key: store.get('license') };
+}
+function applyLicenseUI(){
+  const {pro} = licenseInfo();
+  $('bulkLocked').classList.toggle('hidden', pro);
+  $('bulkUnlocked').classList.toggle('hidden', !pro);
+  $('proBadge').textContent = pro ? 'PRO license active · ' : '';
+}
+
+/* ---------- bulk mode (Pro) ------------------------------------------
+   AIDEV: client-side politeness throttle — 4 concurrent domains, small gap.
+   Public resolvers publish no hard limit for JSON DoH; stay gentle anyway. */
+let bulkRows = [];
+async function runBulk(){
+  const domains = [...new Set($('bulkInput').value.split(/[\s,;]+/)
+    .map(normalizeDomain).filter(Boolean))].slice(0,100);
+  if (!domains.length){ $('bulkStatus').textContent='No valid domains found.'; return; }
+  $('bulkStatus').textContent = `0 / ${domains.length}`;
+  $('bulkRunBtn').disabled = true; bulkRows = [];
+  const wrap = $('bulkTableWrap');
+  wrap.innerHTML = '<table><thead><tr><th>domain</th><th>grade</th><th>SPF</th><th>DKIM</th><th>DMARC</th><th>MX</th></tr></thead><tbody id="bulkBody"></tbody></table>';
+  let done = 0, idx = 0;
+  async function worker(){
+    while (idx < domains.length){
+      const d = domains[idx++];
+      let row;
+      try {
+        dnsCache.clear();
+        const [spf,dmarc,mx,dkim,bimi] = await Promise.all(
+          [checkSpf(d),checkDmarc(d),checkMx(d),checkDkim(d),checkBimi(d)]);
+        const checks = {spf,dmarc,mx,dkim,bimi};
+        row = { d, g:computeGrade(checks).letter, spf:spf.status, dkim:dkim.status, dmarc:dmarc.status, mx:mx.status };
+      } catch(e){ row = { d, g:'—', spf:'err', dkim:'err', dmarc:'err', mx:'err' }; }
+      bulkRows.push(row);
+      $('bulkBody').insertAdjacentHTML('beforeend',
+        `<tr><td>${esc(row.d)}</td><td class="gr ${row.g.replace('+','p')}">${esc(row.g)}</td><td>${row.spf}</td><td>${row.dkim}</td><td>${row.dmarc}</td><td>${row.mx}</td></tr>`);
+      $('bulkStatus').textContent = `${++done} / ${domains.length}`;
+      await new Promise(r=>setTimeout(r,300)); // gap per worker
+    }
+  }
+  await Promise.all([0,1,2,3].map(worker));
+  $('bulkRunBtn').disabled = false;
+  $('bulkCsvBtn').classList.remove('hidden');
+  $('bulkStatus').textContent = `done — ${done} domains`;
+}
+function bulkCsv(){
+  const head='domain,grade,spf,dkim,dmarc,mx\n';
+  const body=bulkRows.map(r=>[r.d,r.g,r.spf,r.dkim,r.dmarc,r.mx].join(',')).join('\n');
+  const a=document.createElement('a');
+  a.download='inboxproof-bulk.csv';
+  a.href='data:text/csv;charset=utf-8,'+encodeURIComponent(head+body); a.click();
+}
+
+/* ---------- mock mode ---------- */
+async function loadMock(){
+  try {
+    const r = await fetch('mock.json'); MOCK = await r.json();
+  } catch(e){ MOCK = { default:{} }; }
+}
+function mockAnswer(name, type){
+  const m = (MOCK.records||{})[type+':'+name.toLowerCase()];
+  if (m) return { status:0, answers:m };
+  return { status:0, answers:[] };
+}
+
+/* ---------- wiring ---------- */
+document.addEventListener('click', e=>{
+  const c = e.target.closest('[data-copy]'); if (c) return copyText(c.dataset.copy, c);
+  const h = e.target.closest('[data-hist]'); if (h){ $('domainInput').value=h.dataset.hist; go(); }
+});
+function go(){
+  const d = normalizeDomain($('domainInput').value);
+  if (!d) return showError('That does not look like a domain',
+    'Enter a bare domain like acme.com (IDN/unicode domains are fine — they are converted to punycode).');
+  runCheck(d);
+}
+$('checkBtn').onclick = go;
+$('domainInput').addEventListener('keydown', e=>{ if (e.key==='Enter') go(); });
+$('examples').addEventListener('click', e=>{
+  const b=e.target.closest('button[data-d]'); if (!b) return;
+  $('domainInput').value=b.dataset.d; go();
+});
+$('retryBtn').onclick = ()=>{ if ($('domainInput').value) go(); };
+$('mockBtn').onclick = ()=>{ location.search='?mock=1'; };
+$('recheckBtn').onclick = ()=>{ dnsCache.clear(); if (currentReport) runCheck(currentReport.domain); };
+$('pngBtn').onclick = exportPng;
+$('pdfBtn').onclick = ()=>window.print();
+$('linkBtn').onclick = e=>{
+  const u = new URL(location); u.searchParams.delete('mock');
+  if (currentReport) u.searchParams.set('d', currentReport.domain);
+  copyText(u.toString(), e.target);
+};
+$('dkimSelBtn').onclick = async ()=>{
+  const sel = $('dkimSelInput').value.trim();
+  if (!sel || !currentReport) return;
+  $('dkimSelResult').textContent = 'checking…';
+  try {
+    const hit = await probeDkimSelector(sel, currentReport.domain);
+    $('dkimSelResult').textContent = hit
+      ? (hit.revoked ? `⚠ ${sel}: key present but empty (revoked)` : `✓ DKIM key found on "${sel}"`)
+      : `✗ no key at ${sel}._domainkey.${currentReport.domain}`;
+  } catch(e){ $('dkimSelResult').textContent='lookup failed — retry'; }
+};
+$('buyBtn').onclick = ()=>{
+  // AIDEV-MONETIZATION placeholder: replace with your Lemon Squeezy product URL.
+  alert('Placeholder: link this button to your Lemon Squeezy / Polar checkout URL.');
+};
+$('enterLicenseBtn').onclick = ()=>$('licensePanel').classList.toggle('hidden');
+$('licenseVerifyBtn').onclick = async ()=>{
+  const key = $('licenseInput').value.trim();
+  $('licenseStatus').textContent = 'verifying…';
+  const res = await window.inboxproofVerifyLicense(key); // verify.js
+  if (res.valid){
+    store.set('license', key); store.set('license.valid','1');
+    $('licenseStatus').textContent = '✓ Pro activated'+(res.payload.name?(' — '+res.payload.name):'');
+    applyLicenseUI();
+  } else {
+    store.del('license.valid');
+    $('licenseStatus').textContent = '✗ '+res.reason;
+  }
+};
+$('bulkRunBtn').onclick = runBulk;
+$('bulkCsvBtn').onclick = bulkCsv;
+
+/* ---------- boot ---------- */
+(async function boot(){
+  renderHistory(); applyLicenseUI();
+  // re-verify stored license on load (defense against stale flag)
+  const saved = store.get('license');
+  if (saved){
+    const r = await window.inboxproofVerifyLicense(saved).catch(()=>({valid:false}));
+    store.set('license.valid', r.valid?'1':'0'); applyLicenseUI();
+  }
+  const q = new URLSearchParams(location.search);
+  if (q.get('mock')==='1'){ await loadMock(); $('domainInput').value='sample-company.com'; runCheck('sample-company.com'); return; }
+  const d = q.get('d') && normalizeDomain(q.get('d'));
+  if (d){ $('domainInput').value=d; runCheck(d); }
+  else $('domainInput').focus();
+})();
+</script>
+</body>
+</html>
